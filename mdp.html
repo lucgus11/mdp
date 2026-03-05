@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioPass - Gestionnaire Sécurisé</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        :root { --primary: #00f2fe; --bg: #0f172a; --card: #1e293b; --text: #f8fafc; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; display: flex; justify-content: center; padding: 20px; }
+        .container { width: 100%; max-width: 500px; background: var(--card); padding: 2rem; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+        h1 { text-align: center; color: var(--primary); margin-bottom: 1.5rem; }
+        
+        .auth-screen { text-align: center; padding: 2rem 0; }
+        .hidden { display: none; }
+        
+        input, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: none; box-sizing: border-box; }
+        input { background: #334155; color: white; border: 1px solid #475569; }
+        button { background: var(--primary); color: #000; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        button:hover { opacity: 0.8; }
+        button.delete { background: #ef4444; color: white; margin-top: 5px; padding: 5px; font-size: 0.8rem; }
+        
+        .pass-item { background: #334155; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid var(--primary); }
+        .pass-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; margin-bottom: 5px; }
+        .pass-value { font-family: monospace; background: #0f172a; padding: 5px; border-radius: 4px; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>BioPass 🔐</h1>
+
+    <div id="auth-section" class="auth-screen">
+        <p>Veuillez vous authentifier pour accéder à vos coffres-forts.</p>
+        <button onclick="authenticate()">DÉVERROUILLER (EMPREINTE)</button>
+    </div>
+
+    <div id="manager-section" class="hidden">
+        <div style="margin-bottom: 2rem;">
+            <h3>Ajouter un identifiant</h3>
+            <input type="text" id="site-name" placeholder="Nom du site (ex: Gmail)">
+            <input type="password" id="site-pass" placeholder="Mot de passe">
+            <button onclick="savePassword()">AJOUTER AU COFFRE</button>
+        </div>
+
+        <hr style="border: 0.5px solid #475569; margin: 2rem 0;">
+        
+        <h3>Vos mots de passe chiffrés</h3>
+        <div id="passwords-list"></div>
+        <button onclick="location.reload()" style="background: #475569; color: white; margin-top: 20px;">VERROUILLER</button>
+    </div>
+</div>
+
+<script>
+    // Clé de chiffrement fictive (Dans un vrai projet, elle serait dérivée de l'empreinte)
+    const SECRET_KEY = "MaCleSuperSecreteBiometrique";
+    let isAuthenticated = false;
+
+    // 1. Simulation de l'authentification Biométrique (WebAuthn)
+    async function authenticate() {
+        if (window.PublicKeyCredential) {
+            try {
+                // Sur Android, ceci déclenche le capteur d'empreinte/reconnaissance faciale
+                // Note: challenge et id normalement fournis par un serveur
+                alert("Appuyez sur OK puis scannez votre empreinte.");
+                
+                // Ici on simule une réponse positive du système Android
+                // Dans une prod réelle, on utiliserait : await navigator.credentials.get(...)
+                
+                isAuthenticated = true;
+                document.getElementById('auth-section').classList.add('hidden');
+                document.getElementById('manager-section').classList.remove('hidden');
+                renderPasswords();
+            } catch (err) {
+                alert("Erreur biométrique : " + err);
+            }
+        } else {
+            alert("Biométrie non supportée sur ce navigateur.");
+        }
+    }
+
+    // 2. Chiffrer et Sauvegarder
+    function savePassword() {
+        const site = document.getElementById('site-name').value;
+        const pass = document.getElementById('site-pass').value;
+
+        if(!site || !pass) return alert("Remplissez tous les champs");
+
+        // Chiffrement AES-256
+        const encryptedPass = CryptoJS.AES.encrypt(pass, SECRET_KEY).toString();
+        
+        const data = JSON.parse(localStorage.getItem('my_vault') || '[]');
+        data.push({ id: Date.now(), site, pass: encryptedPass });
+        
+        localStorage.setItem('my_vault', JSON.stringify(data));
+        
+        // Nettoyage
+        document.getElementById('site-name').value = '';
+        document.getElementById('site-pass').value = '';
+        renderPasswords();
+    }
+
+    // 3. Déchiffrer et Afficher
+    function renderPasswords() {
+        const list = document.getElementById('passwords-list');
+        const data = JSON.parse(localStorage.getItem('my_vault') || '[]');
+        list.innerHTML = '';
+
+        data.forEach(item => {
+            // Déchiffrement à la volée
+            const decryptedBytes = CryptoJS.AES.decrypt(item.pass, SECRET_KEY);
+            const originalPass = decryptedBytes.toString(CryptoJS.enc.Utf8);
+
+            list.innerHTML += `
+                <div class="pass-item">
+                    <div class="pass-header">
+                        <span>${item.site}</span>
+                        <button class="delete" onclick="deletePass(${item.id})">Supprimer</button>
+                    </div>
+                    <div class="pass-value">
+                        <span id="p-${item.id}">••••••••</span>
+                        <span style="cursor:pointer" onclick="toggleVisibility(${item.id}, '${originalPass}')">👁️</span>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    function toggleVisibility(id, clearPass) {
+        const el = document.getElementById(`p-${id}`);
+        el.innerText = (el.innerText === '••••••••') ? clearPass : '••••••••';
+    }
+
+    function deletePass(id) {
+        let data = JSON.parse(localStorage.getItem('my_vault') || '[]');
+        data = data.filter(item => item.id !== id);
+        localStorage.setItem('my_vault', JSON.stringify(data));
+        renderPasswords();
+    }
+</script>
+
+</body>
+</html>
